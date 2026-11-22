@@ -1,0 +1,39 @@
+{
+  "name": "mushroom-farm",
+  "private": true,
+  "version": "1.0.0",
+  "license": "MIT",
+  "description": "Free, open-source billing and farm-management PWA for small farms in India (React + Supabase)",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "demo": "vite --mode demo",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc -b",
+    "test:db": "node scripts/test-db.mjs",
+    "test:report": "npx -y deno@2.1.4 test --node-modules-dir=none --allow-read --allow-write --allow-net --allow-env --allow-import supabase/functions/report/report_test.ts",
+    "icons": "node scripts/make-icons.mjs",
+    "sql:combine": "node scripts/combine-sql.mjs"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "2.45.4",
+    "qrcode": "1.5.4",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "react-router-dom": "6.26.2"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "0.2.12",
+    "@types/qrcode": "1.5.5",
+    "@types/react": "18.3.11",
+    "@types/react-dom": "18.3.0",
+    "@vitejs/plugin-react": "4.3.2",
+    "autoprefixer": "10.4.20",
+    "postcss": "8.4.47",
+    "tailwindcss": "3.4.13",
+    "typescript": "5.6.2",
+    "vite": "5.4.8",
+    "vite-plugin-pwa": "0.20.5"
+  }
+}

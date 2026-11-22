@@ -1,0 +1,55 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Extra space at the bottom while the host's "Powered by Netlify" badge is on screen,
+   so it never covers the app's bottom buttons. Set by useBadgeGap() in Layout.tsx. */
+:root {
+  --badge-gap: 0px;
+}
+.above-badge {
+  bottom: var(--badge-gap);
+}
+.above-badge-bar {
+  bottom: calc(4rem + var(--badge-gap));
+}
+body {
+  @apply bg-[#f7f7f2] text-gray-900 antialiased;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', 'Noto Sans Devanagari', sans-serif;
+}
+
+/* ---------- Bill / receipt (screen + print) ---------- */
+.receipt {
+  font-family: ui-monospace, 'Cascadia Mono', 'Roboto Mono', Menlo, Consolas, monospace;
+  color: #000;
+  line-height: 1.35;
+  font-size: 13px;
+}
+.receipt hr { border: 0; border-top: 1px dashed #000; margin: 6px 0; }
+.receipt .r-title { font-size: 1.25em; font-weight: 700; }
+.receipt .r-row { display: flex; justify-content: space-between; gap: 8px; }
+.receipt .r-row > span:last-child { white-space: nowrap; text-align: right; }
+.receipt .r-item { margin-bottom: 4px; }
+.receipt .r-name { font-weight: 600; }
+.receipt .r-total { font-size: 1.3em; font-weight: 700; margin: 4px 0; }
+.receipt .r-void { text-align: center; font-weight: 700; font-size: 1.1em; margin: 4px 0; }
+.receipt .r-table { width: 100%; border-collapse: collapse; }
+.receipt .r-table th, .receipt .r-table td { padding: 4px; text-align: right; border-bottom: 1px solid #ddd; }
+.receipt .r-table .text-left { text-align: left; }
+
+#print-root { display: none; }
+
+@media print {
+  #root { display: none !important; }
+  #print-root { display: block; }
+  body { background: #fff !important; }
+  /* Printable width of the roll, leaving the printer's own margins. */
+  .receipt[data-paper='58'] { width: 48mm; font-size: 9pt; padding: 0 1mm; }
+  .receipt[data-paper='80'] { width: 72mm; font-size: 10.5pt; padding: 0 2mm; }
+  .receipt[data-paper='a4'] { width: 100%; font-size: 11pt; }
+  .receipt[data-paper='a4'] .r-title { font-size: 18pt; }
+}

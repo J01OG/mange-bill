@@ -1,0 +1,52 @@
+# Optional off-site backup (free). Every night GitHub makes a full, restorable SQL copy
+# of the database and keeps it for 30 days. It lives outside Supabase, so it survives
+# even if the Supabase project is lost.
+#
+# It ONLY runs in a PRIVATE repository (see the "if:" below): backup files in a public
+# repository could be downloaded by anyone. If you use the public open-source project,
+# make your own private copy of it for your farm and set the backup up there.
+#
+# Setup (once): put this project in a PRIVATE GitHub repository, then
+# GitHub → repository → Settings → Secrets and variables → Actions → New repository secret
+#   Name:  SUPABASE_DB_URL
+#   Value: Supabase → Connect → "Session pooler" connection string, with your database
+#          password filled in (it starts with postgresql://postgres.xxxx:...@aws-...pooler.supabase.com:5432/postgres)
+# Download a copy: GitHub → Actions → "Nightly database backup" → latest run → Artifacts.
+name: Nightly database backup
+
+on:
+  schedule:
+    - cron: '30 21 * * *' # 3:00 am India time
+  workflow_dispatch: {} # also allows "Run workflow" by hand
+
+jobs:
+  backup:
+    # SAFETY: files saved by jobs in a PUBLIC repository can be downloaded by anyone,
+    # so this backup only ever runs in a PRIVATE repository. In public copies of this
+    # project (including forks) it is skipped quietly.
+    if: ${{ github.event.repository.private }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Dump the database
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SUPABASE_DB_URL}" ]; then echo "Add the SUPABASE_DB_URL secret first (see the top of this file)."; exit 1; fi
+          mkdir backup
+          # All farm data and structure:
+          docker run --rm -e URL="$SUPABASE_DB_URL" -v "$PWD/backup:/out" postgres:17 \
+            sh -c 'pg_dump "$URL" --schema=public --no-owner --no-privileges --file=/out/farm-public.sql'
+          # App logins (so users keep their mobile numbers and passwords after a restore):
+          docker run --rm -e URL="$SUPABASE_DB_URL" -v "$PWD/backup:/out" postgres:17 \
+            sh -c 'pg_dump "$URL" --data-only --table=auth.users --table=auth.identities --no-owner --no-privileges --file=/out/farm-logins.sql'
+          ls -lh backup
+          test -s backup/farm-public.sql
+
+      - name: Keep it for 30 days
+        uses: actions/upload-artifact@v4
+        with:
+          name: farm-db-backup-${{ github.run_number }}
+          path: backup/
+          retention-days: 30

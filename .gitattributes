@@ -1,0 +1,4 @@
+# Keep line endings consistent for everyone (Windows, Mac, Linux).
+* text=auto eol=lf
+*.png binary
+*.xlsx binary

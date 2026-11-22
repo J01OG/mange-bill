@@ -1,0 +1,19 @@
+node_modules
+dist
+dev-dist
+*.tsbuildinfo
+*.log
+
+# Your own connection settings and farm-specific copies: never publish these.
+.env
+.env.local
+.env.*.local
+private/
+
+# Test output
+supabase/functions/report/sample-report*
+
+# Editor / assistant settings
+.claude/
+.vscode/
+.idea/
