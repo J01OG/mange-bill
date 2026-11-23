@@ -84,6 +84,7 @@ export function OrderView() {
                 {i.product_name}
                 <span className="block text-sm text-gray-600">
                   {formatQty(Number(i.qty), i.unit)} × {formatPaise(i.unit_price_paise)}
+                  {i.unit === 'kg' ? '/kg' : ''}
                 </span>
               </span>
               <span className="font-semibold">{formatPaise(i.line_total_paise)}</span>

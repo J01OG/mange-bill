@@ -1,15 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { PaySheet, type Line } from '../components/PaySheet';
 import { Alert, Button, Field, Input, Sheet, Spinner } from '../components/ui';
-import { formatQty, lineAmounts, newRef, UNIT_LABEL, useProducts, useSettings, type Product } from '../lib/data';
+import { formatQty, gramsToKg, lineAmounts, newRef, UNIT_LABEL, useProducts, useSettings, type Product } from '../lib/data';
 import { formatPaise, rupeesToPaise } from '../lib/money';
 
 const round3 = (n: number) => Math.round(n * 1000) / 1000;
-
-/** "0.417 kg" → "417 g"; 1 kg and above stays in kg. */
-function weightText(kg: number) {
-  return kg < 1 ? `${Math.round(kg * 1000)} g` : formatQty(kg, 'kg');
-}
+const weightText = (kg: number) => formatQty(kg, 'kg');
 
 export function NewBill() {
   const { products, error: loadError } = useProducts(false);
@@ -83,7 +79,7 @@ export function NewBill() {
               </div>
               {l && (
                 <span className="absolute right-2 top-2 rounded-full bg-brand-700 px-2 py-0.5 text-xs font-bold text-white">
-                  {l.amount ? formatPaise(l.amount) : p.unit === 'kg' ? `${l.qty} kg` : l.qty}
+                  {l.amount ? formatPaise(l.amount) : p.unit === 'kg' ? weightText(l.qty) : l.qty}
                 </span>
               )}
             </button>
@@ -195,11 +191,13 @@ function WeighSheet({
   onSetAmount: (paise: number) => void;
 }) {
   const [mode, setMode] = useState<'weight' | 'amount'>(current?.amount ? 'amount' : 'weight');
-  const [kgText, setKgText] = useState(current && !current.amount ? String(current.qty) : '');
+  // Weight is typed in GRAMS (e.g. 350); the database stores kilograms (0.35).
+  const [gText, setGText] = useState(current && !current.amount ? String(Math.round(current.qty * 1000)) : '');
   const [rsText, setRsText] = useState(current?.amount ? String(current.amount / 100) : '');
 
-  const kg = Number(kgText);
-  const kgValid = kgText !== '' && Number.isFinite(kg) && kg > 0 && kg <= 10000;
+  const grams = Number(gText);
+  const kg = gramsToKg(grams);
+  const kgValid = gText !== '' && Number.isInteger(grams) && grams >= 1 && kg <= 10000;
   const paise = rupeesToPaise(rsText);
   const giveKg = paise ? round3(paise / product.price_paise) : 0;
   const rsValid = !!paise && giveKg > 0 && giveKg <= 10000;
@@ -224,22 +222,29 @@ function WeighSheet({
         {mode === 'weight' ? (
           <>
             <div className="grid grid-cols-4 gap-2">
-              {[0.25, 0.5, 1, 2].map((w) => (
-                <Button key={w} variant="secondary" onClick={() => onSetWeight(w)}>
-                  {w < 1 ? `${w * 1000} g` : `${w} kg`}
+              {[100, 250, 500, 1000].map((g) => (
+                <Button key={g} variant="secondary" onClick={() => onSetWeight(gramsToKg(g))}>
+                  {g < 1000 ? `${g} g` : `${g / 1000} kg`}
                 </Button>
               ))}
             </div>
-            <Field label="Or type the weight in kg" hint="Example: 1.35 for 1 kg 350 g">
-              <Input
-                autoFocus
-                inputMode="decimal"
-                value={kgText}
-                onChange={(e) => setKgText(e.target.value.replace(/[^\d.]/g, ''))}
-                onKeyDown={(e) => e.key === 'Enter' && kgValid && onSetWeight(kg)}
-              />
+            <Field label="Or type the weight in grams" hint="Example: 350 for 350 g · 1250 for 1 kg 250 g">
+              <div className="flex items-center gap-2">
+                <Input
+                  autoFocus
+                  inputMode="numeric"
+                  value={gText}
+                  onChange={(e) => setGText(e.target.value.replace(/\D/g, ''))}
+                  onKeyDown={(e) => e.key === 'Enter' && kgValid && onSetWeight(kg)}
+                />
+                <span className="font-semibold text-gray-600">g</span>
+              </div>
             </Field>
-            {kgValid && <p className="text-center text-gray-600">= {formatPaise(Math.round(product.price_paise * kg))}</p>}
+            {kgValid && (
+              <p className="text-center text-gray-600">
+                {weightText(kg)} = {formatPaise(Math.round(product.price_paise * kg))}
+              </p>
+            )}
             <Button className="w-full" disabled={!kgValid} onClick={() => onSetWeight(kg)}>
               Set weight
             </Button>

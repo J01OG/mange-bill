@@ -92,9 +92,16 @@ export function lineAmounts(p: Product, qty: number, pricesIncludeGst: boolean, 
   return { gross, tax, line: pricesIncludeGst ? gross : gross + tax };
 }
 
+/** Grams typed by the user ("350") → kilograms stored in the database (0.35). */
+export function gramsToKg(grams: number): number {
+  return Math.round(grams) / 1000;
+}
+
 export function formatQty(qty: number, unit: Unit): string {
   const n = Number(qty);
-  return unit === 'kg' ? `${n.toLocaleString('en-IN', { maximumFractionDigits: 3 })} kg` : `${n} ${UNIT_LABEL[unit]}`;
+  // Weighed items: grams below 1 kg ("625 g"), kilograms from 1 kg ("1.25 kg").
+  if (unit === 'kg') return n < 1 ? `${Math.round(n * 1000)} g` : `${n.toLocaleString('en-IN', { maximumFractionDigits: 3 })} kg`;
+  return `${n} ${UNIT_LABEL[unit]}`;
 }
 
 /** Remembers small per-device choices (like paper size). Never required to work. */
