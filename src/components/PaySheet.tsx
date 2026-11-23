@@ -12,6 +12,8 @@ export interface Line {
   qty: number;
   /** Set when a weighed item was sold by money ("₹100 worth"); qty is then the weight to give. */
   amount?: number;
+  /** Bargained rate for this bill only (per kg / packet / piece). Unset = normal price. */
+  price?: number;
 }
 
 type Mode = 'cash' | 'upi' | 'split';
@@ -49,9 +51,11 @@ export function PaySheet({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const items = lines.map((l) =>
-    l.amount ? { product_id: l.product.id, amount_paise: l.amount } : { product_id: l.product.id, qty: l.qty },
-  );
+  const items = lines.map((l) => ({
+    product_id: l.product.id,
+    ...(l.amount ? { amount_paise: l.amount } : { qty: l.qty }),
+    ...(l.price ? { price_paise: l.price } : {}),
+  }));
   const payable = coupon?.total ?? total;
 
   // Fill in the name of a customer we already know.

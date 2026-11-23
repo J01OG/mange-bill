@@ -19,6 +19,10 @@ Keep this on your phone. Each section is a few taps.
 **Make a bill**: **New bill** → tap products (a packet adds 1 with each tap; a **kg** item asks for the weight) → **Charge** →
 **Cash** (type what the customer gave to see the change) / **UPI** (the customer scans the QR) / **Split** → **Save bill**.
 - Customer's mobile number and a coupon are optional: **Customer & coupon**.
+- **Kg items**: tap **+100 g / +250 g / +500 g / +1 kg** as many times as needed (250 g twice = 0.5 kg), or type the kg.
+  **₹ By amount** works the same way (+₹50 twice = ₹100). **Clear** starts again.
+- **Bargain**: on a kg item tap **🤝 Bargain** and type the agreed rate per kg. On a packet, tap **🤝** next to it in "This bill".
+  It changes the rate for this bill only. The product price stays the same, and the bill page shows "Bargained … (normal ₹…)".
 - After saving: **Print** (pick 58 mm / 80 mm / A4) or **Send on WhatsApp** (only if a mobile number was entered) → **+ Next bill**.
 
 **Customer returns something**: Home → **Returns** → type the bill number (just the last digits is fine) → choose how many → Cash/UPI refund → Save.
@@ -29,9 +33,11 @@ Keep this on your phone. Each section is a few taps.
 **Cancel a wrong bill**: open it from **Bills** → *Cancel (void) this bill* → reason. It stays in the records, marked VOID.
 (If only some items came back, use Returns instead. A bill made from an order cannot be voided; use Returns.)
 
-**Prices and products**: Home → **Products** → tap one to change its price. **Archive** a product to stop selling it; old bills keep their prices.
+**Prices and products**: Home → **Products** → tap one to change its price. Give it a **Section** (e.g. Fresh, Dry, Spawn) and a **Button colour** so it is quick to find on New bill. **Archive** a product to stop selling it; old bills keep their prices.
 
 **Coupons**: Home → **Coupons** → **+ New coupon**: % or ₹ off, all or some products, optional one-customer-only, minimum bill, max uses, last day.
+
+**Stop cashiers bargaining**: Home → **Settings** → untick *Cashiers can bargain*. You can still bargain yourself.
 
 **Users**: Home → **Users** → **+ Add user** (mobile + password + role). Tap a user to **reset the password**, change the role, or **disable** them.
 Nobody can sign up by themselves, and a forgotten password is reset by you here.

@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { Alert, Button, Card, Field, Input, Select, Sheet, Spinner } from '../components/ui';
-import { friendlyError, UNIT_LABEL, useProducts, type Product, type Unit } from '../lib/data';
+import { colorOf, COLORS, friendlyError, UNIT_LABEL, useProducts, type Color, type Product, type Unit } from '../lib/data';
 import { formatPaise, rupeesToPaise } from '../lib/money';
 import { supabase } from '../lib/supabase';
 
@@ -39,11 +39,13 @@ export function Products() {
           {shown.map((p) => (
             <li key={p.id}>
               <button className="w-full text-left" onClick={() => setEditing(p)}>
-                <Card className="flex items-center justify-between">
-                  <div>
+                <Card className="flex items-center justify-between gap-3">
+                  <span className={`h-4 w-4 shrink-0 rounded-full ${colorOf(p).dot}`} aria-hidden />
+                  <div className="min-w-0 flex-1">
                     <div className="font-semibold">{p.name}</div>
                     <div className="text-sm text-gray-600">
-                      per {UNIT_LABEL[p.unit]} · GST {p.gst_rate_bp / 100}%{p.hsn_code ? ` · HSN ${p.hsn_code}` : ''}
+                      {p.section ? `${p.section} · ` : ''}per {UNIT_LABEL[p.unit]} · GST {p.gst_rate_bp / 100}%
+                      {p.hsn_code ? ` · HSN ${p.hsn_code}` : ''}
                     </div>
                   </div>
                   <div className="text-lg font-bold">{formatPaise(p.price_paise)}</div>
@@ -58,6 +60,7 @@ export function Products() {
       {editing && (
         <ProductForm
           product={editing === 'new' ? null : editing}
+          sections={[...new Set((products ?? []).map((p) => p.section?.trim()).filter((x): x is string => !!x))]}
           onClose={() => setEditing(null)}
           onDone={(m) => {
             setEditing(null);
@@ -70,7 +73,19 @@ export function Products() {
   );
 }
 
-function ProductForm({ product, onClose, onDone }: { product: Product | null; onClose: () => void; onDone: (m: string) => void }) {
+function ProductForm({
+  product,
+  sections,
+  onClose,
+  onDone,
+}: {
+  product: Product | null;
+  sections: string[];
+  onClose: () => void;
+  onDone: (m: string) => void;
+}) {
+  const [color, setColor] = useState<Color>((product?.color as Color) ?? 'gray');
+  const [section, setSection] = useState(product?.section ?? '');
   const [name, setName] = useState(product?.name ?? '');
   const [localName, setLocalName] = useState(product?.local_name ?? '');
   const [unit, setUnit] = useState<Unit>(product?.unit ?? 'packet');
@@ -93,6 +108,8 @@ function ProductForm({ product, onClose, onDone }: { product: Product | null; on
       gst_rate_bp: Math.round(Number(gst) * 100),
       hsn_code: hsn.trim() || null,
       sort_order: Number(sort) || 0,
+      color,
+      section: section.trim() || null,
     };
     setBusy(true);
     const { error } = product
@@ -148,6 +165,33 @@ function ProductForm({ product, onClose, onDone }: { product: Product | null; on
           <Field label="HSN code (optional)">
             <Input value={hsn} onChange={(e) => setHsn(e.target.value)} maxLength={10} inputMode="numeric" />
           </Field>
+        </div>
+        <Field label="Section (optional)" hint="Groups buttons on the bill screen, e.g. Fresh, Dry, Spawn.">
+          <Input list="product-sections" value={section} onChange={(e) => setSection(e.target.value)} maxLength={40} placeholder="Fresh" />
+          <datalist id="product-sections">
+            {sections.map((s) => (
+              <option key={s} value={s} />
+            ))}
+          </datalist>
+        </Field>
+        <div>
+          <span className="mb-1 block text-sm font-medium text-gray-700">Button colour</span>
+          <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Button colour">
+            {(Object.keys(COLORS) as Color[]).map((c) => (
+              <button
+                key={c}
+                type="button"
+                role="radio"
+                aria-checked={color === c}
+                aria-label={COLORS[c].label}
+                title={COLORS[c].label}
+                onClick={() => setColor(c)}
+                className={`flex h-11 w-11 items-center justify-center rounded-full ring-1 ${COLORS[c].tile} ${color === c ? 'outline outline-[3px] outline-offset-2 outline-brand-700' : ''}`}
+              >
+                <span className={`h-5 w-5 rounded-full ${COLORS[c].dot}`} />
+              </button>
+            ))}
+          </div>
         </div>
         <Field label="Position on bill screen" hint="Smaller numbers show first.">
           <Input inputMode="numeric" value={sort} onChange={(e) => setSort(e.target.value)} />

@@ -7,7 +7,10 @@ import { supabase } from '../lib/supabase';
 export function SettingsPage() {
   const { settings, reload } = useSettings();
   const [form, setForm] = useState<Settings | null>(null);
-  const [msg, setMsg] = useState<{ kind: 'error' | 'success'; text: string } | null>(null);
+  const [msg, setMsg] = useState<{
+    kind: 'error' | 'success';
+    text: string;
+  } | null>(null);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -21,7 +24,11 @@ export function SettingsPage() {
     e.preventDefault();
     if (!form) return;
     const prefix = form.bill_prefix.trim().toUpperCase();
-    if (!/^[A-Z]{1,5}$/.test(prefix)) return setMsg({ kind: 'error', text: 'Bill prefix must be 1–5 letters, like MF.' });
+    if (!/^[A-Z]{1,5}$/.test(prefix))
+      return setMsg({
+        kind: 'error',
+        text: 'Bill prefix must be 1–5 letters, like MF.',
+      });
     setBusy(true);
     const { error } = await supabase
       .from('app_settings')
@@ -34,6 +41,7 @@ export function SettingsPage() {
         upi_id: form.upi_id?.trim() || null,
         bill_prefix: prefix,
         bill_footer: form.bill_footer.trim(),
+        allow_bargain: form.allow_bargain ?? true,
       })
       .eq('id', true);
     setBusy(false);
@@ -83,6 +91,18 @@ export function SettingsPage() {
 
       <Card className="space-y-3">
         <h3 className="font-semibold">Payments and bills</h3>
+        <label className="flex min-h-12 items-center gap-3">
+          <input
+            type="checkbox"
+            className="h-6 w-6 accent-brand-700"
+            checked={form.allow_bargain ?? true}
+            onChange={(e) => set('allow_bargain', e.target.checked)}
+          />
+          <span>
+            Cashiers can bargain (change the rate on a bill)
+            <span className="block text-sm text-gray-500">You can always bargain. Every bargained bill shows the normal price.</span>
+          </span>
+        </label>
         <Field label="UPI ID for the scan-to-pay QR (optional)" hint="Example: greenvalley@okaxis">
           <Input value={form.upi_id ?? ''} onChange={(e) => set('upi_id', e.target.value)} maxLength={60} />
         </Field>

@@ -29,15 +29,15 @@ const db: Record<string, Row[]> = {
     id: true, farm_name: 'Green Valley Mushroom Farm', address: 'Village Road, Pune', phone: '+91 90000 00000',
     gstin: null, prices_include_gst: true, upi_id: 'greenvalley@okaxis', bill_prefix: 'MF',
     bill_footer: 'Fresh from our farm. Thank you!', report_email: null,
-    report_enabled: true, report_time: '19:00:00', report_emails: ['owner@example.com'],
+    allow_bargain: true, report_enabled: true, report_time: '19:00:00', report_emails: ['owner@example.com'],
   }],
   report_runs: [],
   products: [
-    ['Oyster mushroom 200 g', 'packet', 6000], ['Button mushroom 200 g', 'packet', 5000],
-    ['Milky mushroom 250 g', 'packet', 7000], ['Oyster mushroom (loose)', 'kg', 24000],
-    ['Shiitake 100 g', 'packet', 15000], ['Dried oyster 50 g', 'packet', 12000], ['Mushroom spawn bag', 'piece', 10000],
-  ].map(([name, unit, price], i) => ({
-    id: `p${i}`, name, local_name: null, unit, price_paise: price, gst_rate_bp: 0, hsn_code: '0709', sort_order: i, archived_at: null,
+    ['Oyster mushroom 200 g', 'packet', 6000, 'Fresh', 'green'], ['Button mushroom 200 g', 'packet', 5000, 'Fresh', 'amber'],
+    ['Milky mushroom 250 g', 'packet', 7000, 'Fresh', 'blue'], ['Oyster mushroom (loose)', 'kg', 24000, 'Fresh', 'green'],
+    ['Shiitake 100 g', 'packet', 15000, 'Dry', 'brown'], ['Dried oyster 50 g', 'packet', 12000, 'Dry', 'orange'], ['Mushroom spawn bag', 'piece', 10000, 'Spawn', 'purple'],
+  ].map(([name, unit, price, section, color], i) => ({
+    id: `p${i}`, name, local_name: null, unit, price_paise: price, gst_rate_bp: 0, hsn_code: '0709', sort_order: i, archived_at: null, section, color,
   })),
   coupons: [
     { id: 'c1', code: 'WELCOME10', description: '10% off', kind: 'percent', value: 1000, applies_to: 'all', customer_id: null,
@@ -64,6 +64,7 @@ class Query {
   select() { return this; }
   eq(c: string, v: any) { this.filters.push((r) => r[c] === v); return this; }
   is(c: string, v: any) { this.filters.push((r) => (r[c] ?? null) === v); return this; }
+  not(c: string, _op: string, v: any) { this.filters.push((r) => (r[c] ?? null) !== v); return this; }
   private max = Infinity;
   limit(n: number) { this.max = n; return this; }
   range(from: number, to: number) { this.max = to - from + 1; return this; }
@@ -145,12 +146,14 @@ function price(items: any[], code: string | null, phone: string | null) {
   const lines = items.map((i) => {
     const p = db.products.find((x) => x.id === i.product_id)!;
     const eligible = !!c && (c.applies_to === 'all' || db.coupon_products.some((cp) => cp.coupon_id === c.id && cp.product_id === p.id));
+    const price: number = i.price_paise ?? p.price_paise;
+    if (!(price > 0)) throw new Error(`Wrong bargain price for "${p.name}".`);
     if (i.amount_paise != null) {
       if (p.unit !== 'kg') throw new Error(`"${p.name}" is sold per ${p.unit}, so enter how many, not an amount.`);
-      const qty = Math.round((i.amount_paise / p.price_paise) * 1000) / 1000;
-      return { p, qty, gross: i.amount_paise, eligible, discount: 0, tax: 0, line: 0 };
+      const qty = Math.round((i.amount_paise / price) * 1000) / 1000;
+      return { p, price, qty, gross: i.amount_paise, eligible, discount: 0, tax: 0, line: 0 };
     }
-    return { p, qty: i.qty, gross: Math.round(p.price_paise * i.qty), eligible, discount: 0, tax: 0, line: 0 };
+    return { p, price, qty: i.qty, gross: Math.round(price * i.qty), eligible, discount: 0, tax: 0, line: 0 };
   });
   const sub = lines.reduce((a, l) => a + l.gross, 0);
   const elig = lines.filter((l) => l.eligible).reduce((a, l) => a + l.gross, 0);
@@ -403,8 +406,8 @@ const rpcs: Record<string, (a: any) => any> = {
     };
     db.bills.push(bill);
     r.lines.forEach((l) => db.bill_items.push({
-      id: uid(), bill_id: id, product_name: l.p.name, unit: l.p.unit, qty: l.qty, unit_price_paise: l.p.price_paise,
-      gst_rate_bp: l.p.gst_rate_bp, discount_paise: l.discount, tax_paise: l.tax, line_total_paise: l.line,
+      id: uid(), bill_id: id, product_name: l.p.name, unit: l.p.unit, qty: l.qty, unit_price_paise: l.price,
+      list_price_paise: l.price !== l.p.price_paise ? l.p.price_paise : null, gst_rate_bp: l.p.gst_rate_bp, discount_paise: l.discount, tax_paise: l.tax, line_total_paise: l.line,
     }));
     p_payments.forEach((p: any) => db.payments.push({ id: uid(), bill_id: id, ...p }));
     if (r.coupon) r.coupon.used_count++;

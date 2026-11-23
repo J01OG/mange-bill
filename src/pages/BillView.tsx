@@ -3,8 +3,8 @@ import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../auth/AuthProvider';
 import { PrintableReceipt } from '../components/BillActions';
 import { Alert, Button, buttonClass, Field, Input, Sheet, Spinner } from '../components/ui';
-import { friendlyError } from '../lib/data';
-import { formatIST } from '../lib/money';
+import { friendlyError, UNIT_LABEL, type Unit } from '../lib/data';
+import { formatIST, formatPaise } from '../lib/money';
 import { fetchReceipt, shareLink, whatsappText, whatsappUrl, type Receipt } from '../lib/receipt';
 import { supabase } from '../lib/supabase';
 
@@ -18,6 +18,13 @@ interface BillRow {
   order_id: string | null;
 }
 
+interface Bargain {
+  product_name: string;
+  unit: Unit;
+  unit_price_paise: number;
+  list_price_paise: number;
+}
+
 export function BillView() {
   const { id } = useParams();
   const [params] = useSearchParams();
@@ -27,6 +34,7 @@ export function BillView() {
   const [receipt, setReceipt] = useState<Receipt | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [voiding, setVoiding] = useState(false);
+  const [bargains, setBargains] = useState<Bargain[]>([]);
 
   const load = useCallback(async () => {
     const { data, error } = await supabase
@@ -37,6 +45,12 @@ export function BillView() {
     if (error) return setError(friendlyError(error));
     if (!data) return setError('Bill not found (cashiers can only open their own bills from today).');
     setBill(data as BillRow);
+    const { data: b } = await supabase
+      .from('bill_items')
+      .select('product_name, unit, unit_price_paise, list_price_paise')
+      .eq('bill_id', data.id)
+      .not('list_price_paise', 'is', null);
+    setBargains((b ?? []) as Bargain[]);
     try {
       setReceipt(await fetchReceipt(data.share_token));
     } catch (e) {
@@ -81,6 +95,17 @@ export function BillView() {
         <p className="text-center text-sm text-gray-500">No mobile number on this bill, so WhatsApp sharing is off.</p>
       )}
 
+      {bargains.length > 0 && (
+        <div className="rounded-xl bg-amber-50 p-3 text-sm text-amber-900 ring-1 ring-amber-300">
+          <b>🤝 Bargained on this bill</b>
+          {bargains.map((x, n) => (
+            <div key={n}>
+              {x.product_name}: {formatPaise(x.unit_price_paise)}/{UNIT_LABEL[x.unit]} (normal {formatPaise(x.list_price_paise)})
+            </div>
+          ))}
+        </div>
+      )}
+
       <PrintableReceipt r={receipt} />
 
       {bill.status === 'active' && (
@@ -117,7 +142,10 @@ function VoidSheet({ billId, billNo, onClose, onDone }: { billId: string; billNo
 
   async function run() {
     setBusy(true);
-    const { error } = await supabase.rpc('void_bill', { p_bill_id: billId, p_reason: reason });
+    const { error } = await supabase.rpc('void_bill', {
+      p_bill_id: billId,
+      p_reason: reason,
+    });
     setBusy(false);
     if (error) setError(friendlyError(error));
     else onDone();
@@ -127,8 +155,8 @@ function VoidSheet({ billId, billNo, onClose, onDone }: { billId: string; billNo
     <Sheet title={`Cancel bill ${billNo}?`} onClose={onClose}>
       <div className="space-y-3">
         <p className="text-sm text-gray-600">
-          The bill stays in your records marked VOID and is left out of sales totals. This cannot be undone. If the
-          customer is only returning some items, use "Return items" instead.
+          The bill stays in your records marked VOID and is left out of sales totals. This cannot be undone. If the customer is only
+          returning some items, use "Return items" instead.
         </p>
         {error && <Alert>{error}</Alert>}
         <Field label="Reason">

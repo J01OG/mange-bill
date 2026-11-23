@@ -193,8 +193,11 @@ check('cashier sees the new bill', (await as('cashier', `select id from bills wh
 
 const wrongPay = await createBill('cashier', [{ product_id: packet, qty: 1 }], cash(5000));
 check('payment not matching total is refused', /do not match/.test(wrongPay.error ?? ''), wrongPay.error);
+await db.query(`update app_settings set allow_bargain = false`);
 const fakePrice = await createBill('cashier', [{ product_id: packet, qty: 1, price_paise: 1 }], cash(1));
-check('price sent by phone is ignored (₹60 still charged)', /do not match/.test(fakePrice.error ?? ''), fakePrice.error);
+check('bargain off: price sent by phone is refused', /switched off/.test(fakePrice.error ?? ''), fakePrice.error);
+check('owner may still bargain when cashiers cannot', !(await createBill('owner', [{ product_id: packet, qty: 1, price_paise: 5500 }], cash(5500))).error);
+await db.query(`update app_settings set allow_bargain = true`);
 check('worker cannot create bills', !!(await createBill('worker', [{ product_id: packet, qty: 1 }], cash(6000))).error);
 check('anon cannot create bills', !!(await createBill(null, [{ product_id: packet, qty: 1 }], cash(6000))).error);
 check('half a packet is refused', /whole number/.test((await createBill('cashier', [{ product_id: packet, qty: 0.5 }], cash(3000))).error ?? ''));
@@ -567,6 +570,35 @@ check('10% coupon on ₹100 worth = ₹90', amtCoupon.total_paise === 9000, JSON
 const amtItem = (await db.query(`select id from bill_items where bill_id = $1`, [amt.id])).rows[0].id;
 const amtRet = await ret('cashier', amt.id, [{ bill_item_id: amtItem, qty: 0.417 }]);
 check('returning all of it refunds exactly ₹100', amtRet.amount_paise === 10000, amtRet.error ?? JSON.stringify(amtRet));
+
+// --- Bargain price, colours, sections ----------------------------------------------
+console.log('Bargain price, colours, sections');
+const bg = await bill6('cashier', [{ product_id: loose, qty: 0.5, price_paise: 16000 }], cash(8000)); // normal ₹240/kg
+check('bargain: 0.5 kg at ₹160/kg = ₹80', bg.total_paise === 8000, bg.error ?? JSON.stringify(bg));
+const bgLine = (await db.query(`select unit_price_paise p, list_price_paise l from bill_items where bill_id = $1`, [bg.id])).rows[0];
+check('bill line keeps bargained rate ₹160 and normal ₹240', bgLine.p == 16000 && bgLine.l == 24000, JSON.stringify(bgLine));
+check('product price is unchanged', (await db.query(`select price_paise from products where id = $1`, [loose])).rows[0].price_paise == 24000);
+const bgAmt = await bill6('cashier', [{ product_id: loose, amount_paise: 10000, price_paise: 20000 }], cash(10000));
+const bgAmtQ = (await db.query(`select qty::text q from bill_items where bill_id = $1`, [bgAmt.id])).rows[0]?.q;
+check('₹100 worth at bargained ₹200/kg = give 0.5 kg', bgAmt.total_paise === 10000 && bgAmtQ === '0.500', bgAmt.error ?? bgAmtQ);
+const bgUp = await bill6('cashier', [{ product_id: packet, qty: 2, price_paise: 7000 }], cash(14000));
+check('bargain can be higher too: 2 packets at ₹70', bgUp.total_paise === 14000, bgUp.error ?? JSON.stringify(bgUp));
+const normal = await bill6('cashier', [{ product_id: packet, qty: 1 }], cash(6000));
+check('normal sale has no bargain mark',
+  (await db.query(`select list_price_paise l from bill_items where bill_id = $1`, [normal.id])).rows[0].l === null);
+check('zero bargain price refused',
+  /bargain/.test((await bill6('cashier', [{ product_id: packet, qty: 1, price_paise: 0 }], cash(0))).error ?? ''));
+check('text bargain price refused',
+  /bargain/.test((await bill6('cashier', [{ product_id: packet, qty: 1, price_paise: 'abc' }], cash(6000))).error ?? ''));
+const bgPrev = await preview('cashier', [{ product_id: packet, qty: 2, price_paise: 5000 }], 'WELCOME10');
+check('coupon works on bargained price: 2 × ₹50 − 10% = ₹90', bgPrev.total_paise === 9000, JSON.stringify(bgPrev));
+check('owner can set colour and section',
+  !(await as('owner', `update products set color = 'green', section = 'Fresh' where id = '${loose}'`)).error);
+check('unknown colour refused', !!(await as('owner', `update products set color = 'neon' where id = '${loose}'`)).error);
+await as('cashier', `update products set color = 'red' where id = '${loose}'`);
+check('cashier cannot change colour', (await db.query(`select color from products where id = $1`, [loose])).rows[0].color === 'green');
+check('bill lines still cannot be edited',
+  await db.query(`update bill_items set list_price_paise = null where bill_id = $1`, [bg.id]).then(() => false, () => true));
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

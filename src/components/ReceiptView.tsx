@@ -37,7 +37,6 @@ export function ReceiptView({ r, paper }: { r: Receipt; paper: Paper }) {
               <div className="r-row">
                 <span>
                   {formatQty(i.qty, i.unit)} × {formatPaise(i.price_paise)}
-                  {i.unit === 'kg' ? '/kg' : ''}
                 </span>
                 <span>{formatPaise(i.line_total_paise)}</span>
               </div>

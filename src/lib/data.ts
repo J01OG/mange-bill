@@ -13,6 +13,10 @@ export interface Product {
   hsn_code: string | null;
   sort_order: number;
   archived_at: string | null;
+  /** Button colour on the bill screen. */
+  color?: Color | null;
+  /** Group on the bill screen, e.g. "Fresh", "Dry". */
+  section?: string | null;
 }
 
 export interface Settings {
@@ -25,7 +29,27 @@ export interface Settings {
   bill_prefix: string;
   bill_footer: string;
   report_email: string | null;
+  /** May cashiers change the rate on a bill? The owner always can. */
+  allow_bargain?: boolean;
 }
+
+export type Color = 'gray' | 'green' | 'lime' | 'amber' | 'orange' | 'red' | 'pink' | 'purple' | 'blue' | 'teal' | 'brown';
+
+/** Full class names (Tailwind only keeps classes it can see written out). */
+export const COLORS: Record<Color, { label: string; tile: string; dot: string }> = {
+  gray: { label: 'Grey', tile: 'bg-white ring-gray-200', dot: 'bg-gray-400' },
+  green: { label: 'Green', tile: 'bg-green-50 ring-green-300', dot: 'bg-green-500' },
+  lime: { label: 'Lime', tile: 'bg-lime-50 ring-lime-300', dot: 'bg-lime-500' },
+  amber: { label: 'Yellow', tile: 'bg-amber-50 ring-amber-300', dot: 'bg-amber-400' },
+  orange: { label: 'Orange', tile: 'bg-orange-50 ring-orange-300', dot: 'bg-orange-500' },
+  red: { label: 'Red', tile: 'bg-red-50 ring-red-300', dot: 'bg-red-500' },
+  pink: { label: 'Pink', tile: 'bg-pink-50 ring-pink-300', dot: 'bg-pink-500' },
+  purple: { label: 'Purple', tile: 'bg-purple-50 ring-purple-300', dot: 'bg-purple-500' },
+  blue: { label: 'Blue', tile: 'bg-sky-50 ring-sky-300', dot: 'bg-sky-500' },
+  teal: { label: 'Teal', tile: 'bg-teal-50 ring-teal-300', dot: 'bg-teal-500' },
+  brown: { label: 'Brown', tile: 'bg-stone-100 ring-stone-300', dot: 'bg-stone-600' },
+};
+export const colorOf = (p: Product) => COLORS[(p.color ?? 'gray') as Color] ?? COLORS.gray;
 
 export const UNIT_LABEL: Record<Unit, string> = { kg: 'kg', packet: 'pkt', piece: 'pc' };
 
@@ -83,25 +107,19 @@ export function useProducts(includeArchived = false) {
 }
 
 /** Same arithmetic as create_bill() in the database, for showing totals before saving. */
-export function lineAmounts(p: Product, qty: number, pricesIncludeGst: boolean, amountPaise?: number) {
-  // "₹100 worth" lines cost exactly the amount asked for; otherwise price × quantity.
-  const gross = amountPaise ?? Math.round(p.price_paise * qty);
+export function lineAmounts(p: Product, qty: number, pricesIncludeGst: boolean, amountPaise?: number, pricePaise?: number) {
+  // "₹100 worth" lines cost exactly the amount asked for; otherwise rate × quantity.
+  // pricePaise is a bargained rate for this bill only.
+  const gross = amountPaise ?? Math.round((pricePaise ?? p.price_paise) * qty);
   const tax = pricesIncludeGst
     ? Math.round((gross * p.gst_rate_bp) / (10000 + p.gst_rate_bp))
     : Math.round((gross * p.gst_rate_bp) / 10000);
   return { gross, tax, line: pricesIncludeGst ? gross : gross + tax };
 }
 
-/** Grams typed by the user ("350") → kilograms stored in the database (0.35). */
-export function gramsToKg(grams: number): number {
-  return Math.round(grams) / 1000;
-}
-
 export function formatQty(qty: number, unit: Unit): string {
   const n = Number(qty);
-  // Weighed items: grams below 1 kg ("625 g"), kilograms from 1 kg ("1.25 kg").
-  if (unit === 'kg') return n < 1 ? `${Math.round(n * 1000)} g` : `${n.toLocaleString('en-IN', { maximumFractionDigits: 3 })} kg`;
-  return `${n} ${UNIT_LABEL[unit]}`;
+  return unit === 'kg' ? `${n.toLocaleString('en-IN', { maximumFractionDigits: 3 })} kg` : `${n} ${UNIT_LABEL[unit]}`;
 }
 
 /** Remembers small per-device choices (like paper size). Never required to work. */

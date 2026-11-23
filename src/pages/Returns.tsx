@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Alert, Button, Card, Field, Input } from '../components/ui';
-import { formatQty, friendlyError, gramsToKg, newRef, type Unit } from '../lib/data';
+import { formatQty, friendlyError, newRef, type Unit } from '../lib/data';
 import { formatIST, formatPaise } from '../lib/money';
 import { MODE_LABEL } from '../lib/receipt';
 import { supabase } from '../lib/supabase';
@@ -155,17 +155,13 @@ export function Returns() {
                         {left > 0 ? (
                           <div className="mt-2 flex items-center justify-between gap-2">
                             {i.unit === 'kg' ? (
-                              <div className="flex items-center gap-2">
-                                <Input
-                                  className="max-w-36"
-                                  inputMode="numeric"
-                                  aria-label={`Grams of ${i.name} returned`}
-                                  placeholder={`max ${Math.round(left * 1000)}`}
-                                  value={q ? String(Math.round(q * 1000)) : ''}
-                                  onChange={(e) => setItemQty(i, gramsToKg(Number(e.target.value.replace(/\D/g, '')) || 0))}
-                                />
-                                <span className="font-semibold text-gray-600">g</span>
-                              </div>
+                              <Input
+                                className="max-w-36"
+                                inputMode="decimal"
+                                placeholder={`max ${left} kg`}
+                                value={q || ''}
+                                onChange={(e) => setItemQty(i, Number(e.target.value.replace(/[^\d.]/g, '')) || 0)}
+                              />
                             ) : (
                               <div className="flex items-center">
                                 <button aria-label="One less" className="h-11 w-11 rounded-xl bg-gray-100 text-2xl" onClick={() => setItemQty(i, q - 1)}>
