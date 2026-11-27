@@ -85,8 +85,8 @@ export function Cash() {
         <>
           <Card>
             <h3 className="mb-1 font-semibold">💵 Cash in the till</h3>
-            <Line label="Cash sales" value={s.cash_sales_paise} />
-            {!!s.advance_cash_paise && <Line label="Order advances (net)" value={s.advance_cash_paise} />}
+            <Line label="Cash from bills" value={s.cash_sales_paise} />
+            <Line label="Received for orders" value={s.advance_cash_paise ?? 0} />
             <Line label="Cash refunds" value={s.cash_refunds_paise} minus />
             <Line label="Cash out" value={s.cash_out_paise} minus />
             <Line label="Should be in hand" value={s.net_cash_paise} strong />
@@ -96,8 +96,8 @@ export function Cash() {
           </Card>
           <Card>
             <h3 className="mb-1 font-semibold">📱 UPI</h3>
-            <Line label="UPI sales" value={s.upi_sales_paise} />
-            {!!s.advance_upi_paise && <Line label="Order advances (net)" value={s.advance_upi_paise} />}
+            <Line label="UPI from bills" value={s.upi_sales_paise} />
+            <Line label="Received for orders" value={s.advance_upi_paise ?? 0} />
             <Line label="UPI refunds" value={s.upi_refunds_paise} minus />
           </Card>
           <Card>

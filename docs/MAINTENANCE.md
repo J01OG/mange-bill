@@ -53,7 +53,7 @@ The app is built to need very little looking after. Here is everything worth doi
   (`farm-public.sql` and `farm-logins.sql`). This needs someone comfortable with databases. The Excel backups keep every record readable even without a restore.
 
 ## For whoever maintains the code
-- Tests: `npm run test:db` (security rules and money logic, 190+ checks) and `npm run test:report` (Excel builder).
+- Tests: `npm run test:db` (security rules and money logic, 250+ checks) and `npm run test:report` (Excel builder).
 - Database changes: add a new numbered file in `supabase/migrations/`, never edit old ones. Then run `npm run sql:combine` to refresh `ALL-IN-ONE.sql`.
 - New tables must be added to `BACKUP_TABLES` in `supabase/functions/report/index.ts`. A test fails if one is missing.
 - Demo mode (`npm run demo`) uses `src/dev/mockSupabase.ts`. It is not part of the real build.

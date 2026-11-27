@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { useAuth } from '../auth/AuthProvider';
+import { CashUpiInputs, cashUpiLines, cashUpiTotal, type CashUpi } from '../components/CashUpiInputs';
 import { Alert, Button, buttonClass, Card, Field, Input, Sheet, Spinner } from '../components/ui';
 import { UpiQr } from '../components/UpiQr';
 import { formatQty, friendlyError, istToday, newRef, useProducts, useSettings } from '../lib/data';
@@ -11,14 +11,13 @@ import { supabase } from '../lib/supabase';
 
 export function OrderView() {
   const { id } = useParams();
-  const { profile } = useAuth();
-  const isOwner = profile?.role === 'owner';
   const [o, setO] = useState<OrderRow | null>(null);
   const [items, setItems] = useState<OrderItem[]>([]);
   const [pays, setPays] = useState<OrderPayment[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [flash, setFlash] = useState<string | null>(null);
   const [sheet, setSheet] = useState<'advance' | 'refund' | 'cancel' | 'deliver' | null>(null);
+  const [switching, setSwitching] = useState<OrderPayment | null>(null);
 
   const load = useCallback(async () => {
     const [a, b, c] = await Promise.all([
@@ -27,7 +26,7 @@ export function OrderView() {
       supabase.from('order_payments').select('*').eq('order_id', id!).order('created_at'),
     ]);
     if (a.error) return setError(friendlyError(a.error));
-    if (!a.data) return setError('Order not found (cashiers only see orders due today).');
+    if (!a.data) return setError('Order not found.');
     setO(a.data as OrderRow);
     setItems((b.data ?? []) as OrderItem[]);
     setPays((c.data ?? []) as OrderPayment[]);
@@ -39,7 +38,12 @@ export function OrderView() {
   if (error) return <Alert>{error}</Alert>;
   if (!o) return <Spinner />;
   const open = isOpen(o.status);
-  const canDeliver = open && (isOwner || o.delivery_date === istToday());
+  const today = istToday();
+  // Money per mode, with switched payments already moved to the right mode.
+  const net = (mode: 'cash' | 'upi') =>
+    pays.filter((p) => p.mode === mode).reduce((s, p) => s + (p.kind === 'advance' ? p.amount_paise : -p.amount_paise), 0);
+  const shownPays = pays.filter((p) => !p.corrects_id);
+  const switchedTo = (p: OrderPayment) => (pays.some((c) => c.corrects_id === p.id) ? (p.mode === 'cash' ? 'UPI' : 'Cash') : null);
 
   async function toggleReady() {
     const { error } = await supabase.rpc('set_order_ready', { p_order_id: o!.id, p_ready: o!.status !== 'ready' });
@@ -72,6 +76,11 @@ export function OrderView() {
           🚚 {longDay(o.delivery_date)}
           {o.delivery_note ? ` · ${o.delivery_note}` : ''}
         </div>
+        {open && o.delivery_date !== today && (
+          <p className="text-sm text-amber-800">
+            {o.delivery_date < today ? 'Date has passed. Deliver now, or Edit to move the date.' : 'Delivering early is fine.'}
+          </p>
+        )}
         {o.notes && <p className="mt-1 text-sm text-gray-600">{o.notes}</p>}
         {o.cancel_reason && <p className="mt-1 text-sm text-red-700">Cancelled: {o.cancel_reason}</p>}
       </Card>
@@ -96,9 +105,14 @@ export function OrderView() {
             <span>{formatPaise(o.subtotal_paise)}</span>
           </div>
           <div className="flex justify-between text-blue-800">
-            <span>Advance held</span>
+            <span>Paid so far</span>
             <span>{formatPaise(o.advance_paise)}</span>
           </div>
+          {o.advance_paise > 0 && (
+            <div className="text-right text-xs text-gray-500">
+              Cash {formatPaise(net('cash'))} · UPI {formatPaise(net('upi'))}
+            </div>
+          )}
           {open && (
             <div className="flex justify-between text-lg font-bold">
               <span>Balance due on delivery</span>
@@ -114,16 +128,16 @@ export function OrderView() {
         </Link>
       )}
 
-      {canDeliver && (
+      {open && (
         <Button className="min-h-14 w-full text-lg" onClick={() => setSheet('deliver')}>
           🚚 Deliver & make bill
         </Button>
       )}
 
-      {isOwner && open && (
+      {open && (
         <div className="grid grid-cols-2 gap-2">
           <Button variant="secondary" onClick={() => setSheet('advance')}>
-            + Take advance
+            + Take payment
           </Button>
           <Button variant="secondary" onClick={toggleReady}>
             {o.status === 'ready' ? 'Mark not ready' : '📦 Mark ready'}
@@ -132,7 +146,7 @@ export function OrderView() {
             ✏️ Edit order
           </Link>
           <Button variant="secondary" disabled={o.advance_paise <= 0} onClick={() => setSheet('refund')}>
-            Refund advance
+            Give money back
           </Button>
           <Button variant="ghost" className="col-span-2 text-red-700" onClick={() => setSheet('cancel')}>
             Cancel this order
@@ -140,87 +154,173 @@ export function OrderView() {
         </div>
       )}
 
-      {pays.length > 0 && (
+      {shownPays.length > 0 && (
         <section>
-          <h3 className="mb-2 font-semibold">Advance payments</h3>
+          <h3 className="mb-2 font-semibold">Payments for this order</h3>
           <ul className="divide-y rounded-2xl bg-white shadow-sm ring-1 ring-gray-200">
-            {pays.map((p) => (
-              <li key={p.id} className="flex justify-between p-3 text-sm">
-                <span>
-                  {p.kind === 'advance' ? 'Advance' : 'Refund'} ({p.mode === 'cash' ? 'Cash' : 'UPI'})
-                  <span className="block text-xs text-gray-500">
-                    {formatIST(p.created_at)}
-                    {p.note ? ` · ${p.note}` : ''}
+            {shownPays.map((p) => {
+              const moved = switchedTo(p);
+              return (
+                <li key={p.id} className="flex items-center justify-between gap-2 p-3 text-sm">
+                  <span className="min-w-0">
+                    {p.kind === 'advance' ? 'Received' : 'Given back'} ·{' '}
+                    {moved ? (
+                      <>
+                        <s className="text-gray-400">{p.mode === 'cash' ? 'Cash' : 'UPI'}</s> <b>{moved}</b>
+                      </>
+                    ) : p.mode === 'cash' ? (
+                      'Cash'
+                    ) : (
+                      'UPI'
+                    )}
+                    <span className="block text-xs text-gray-500">
+                      {formatIST(p.created_at)}
+                      {p.note ? ` · ${p.note}` : ''}
+                      {moved ? ` · ${pays.find((c) => c.corrects_id === p.id)?.note ?? ''}` : ''}
+                    </span>
                   </span>
-                </span>
-                <span className={`font-semibold ${p.kind === 'refund' ? 'text-red-700' : ''}`}>
-                  {p.kind === 'refund' ? '−' : '+'}
-                  {formatPaise(p.amount_paise)}
-                </span>
-              </li>
-            ))}
+                  <span className="flex shrink-0 items-center gap-2">
+                    <span className={`font-semibold ${p.kind === 'refund' ? 'text-red-700' : ''}`}>
+                      {p.kind === 'refund' ? '−' : '+'}
+                      {formatPaise(p.amount_paise)}
+                    </span>
+                    {!moved && (
+                      <button
+                        className="min-h-10 rounded-lg bg-gray-100 px-2 text-xs font-semibold"
+                        onClick={() => setSwitching(p)}
+                        aria-label={`Change this payment to ${p.mode === 'cash' ? 'UPI' : 'cash'}`}
+                      >
+                        ⇄ {p.mode === 'cash' ? 'UPI' : 'Cash'}
+                      </button>
+                    )}
+                  </span>
+                </li>
+              );
+            })}
           </ul>
         </section>
       )}
 
-      {(sheet === 'advance' || sheet === 'refund') && (
-        <PaymentSheet order={o} kind={sheet} onClose={() => setSheet(null)} onDone={done} />
+      {switching && (
+        <SwitchSheet
+          payment={switching}
+          onClose={() => setSwitching(null)}
+          onDone={(m) => {
+            setSwitching(null);
+            done(m);
+          }}
+        />
       )}
+      {(sheet === 'advance' || sheet === 'refund') && <PaymentSheet order={o} kind={sheet} onClose={() => setSheet(null)} onDone={done} />}
       {sheet === 'cancel' && <CancelSheet order={o} onClose={() => setSheet(null)} onDone={done} />}
       {sheet === 'deliver' && <DeliverSheet order={o} items={items} onClose={() => setSheet(null)} />}
     </div>
   );
 }
 
-function PaymentSheet({ order, kind, onClose, onDone }: { order: OrderRow; kind: 'advance' | 'refund'; onClose: () => void; onDone: (m: string) => void }) {
+function PaymentSheet({
+  order,
+  kind,
+  onClose,
+  onDone,
+}: {
+  order: OrderRow;
+  kind: 'advance' | 'refund';
+  onClose: () => void;
+  onDone: (m: string) => void;
+}) {
   const max = kind === 'advance' ? order.subtotal_paise - order.advance_paise : order.advance_paise;
-  const [amount, setAmount] = useState('');
-  const [mode, setMode] = useState<'cash' | 'upi'>('cash');
+  const [pay, setPay] = useState<CashUpi>({ cash: '', upi: '' });
   const [note, setNote] = useState('');
   const [ref] = useState(newRef);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const lines = cashUpiLines(pay);
+  const total = cashUpiTotal(pay);
 
   async function save() {
-    const paise = rupeesToPaise(amount);
-    if (!paise) return setError('Enter an amount.');
+    if (!lines || lines.length === 0) return setError('Enter the cash or UPI amount (or both).');
+    if (total > max) return setError(`At most ${formatPaise(max)}.`);
     setBusy(true);
-    const { error } = await supabase.rpc('add_order_payment', {
+    const { error } = await supabase.rpc('take_order_payment', {
       p_order_id: order.id,
       p_kind: kind,
-      p_amount_paise: paise,
-      p_mode: mode,
+      p_payments: lines,
       p_note: note || null,
       p_client_ref: ref,
     });
     setBusy(false);
     if (error) setError(friendlyError(error));
-    else onDone(`${kind === 'advance' ? 'Advance' : 'Refund'} of ${formatPaise(paise)} saved.`);
+    else onDone(`${kind === 'advance' ? 'Received' : 'Gave back'} ${formatPaise(total)}.`);
   }
 
   return (
-    <Sheet title={kind === 'advance' ? 'Take advance' : 'Refund advance'} onClose={onClose}>
+    <Sheet title={kind === 'advance' ? 'Take payment' : 'Give money back'} onClose={onClose}>
       <div className="space-y-3">
         <p className="text-sm text-gray-600">
-          {kind === 'advance' ? 'Up to' : 'Advance held:'} {formatPaise(max)}
+          {kind === 'advance'
+            ? `Balance left: ${formatPaise(max)}. Take part now and the rest on any other day.`
+            : `Paid so far: ${formatPaise(max)}`}
         </p>
         {error && <Alert>{error}</Alert>}
-        <Field label="Amount (₹)">
-          <Input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} autoFocus />
-        </Field>
-        <div className="grid grid-cols-2 gap-2">
-          <Button variant={mode === 'cash' ? 'primary' : 'secondary'} onClick={() => setMode('cash')}>
-            💵 Cash
-          </Button>
-          <Button variant={mode === 'upi' ? 'primary' : 'secondary'} onClick={() => setMode('upi')}>
-            📱 UPI
-          </Button>
-        </div>
+        <CashUpiInputs value={pay} onChange={setPay} />
+        {kind === 'advance' && max > 0 && (
+          <div className="flex flex-wrap gap-2 text-sm">
+            <button
+              type="button"
+              className="min-h-10 rounded-xl bg-gray-100 px-3 font-semibold"
+              onClick={() => setPay({ cash: String(max / 100), upi: '' })}
+            >
+              Full balance in cash
+            </button>
+            <button
+              type="button"
+              className="min-h-10 rounded-xl bg-gray-100 px-3 font-semibold"
+              onClick={() => setPay({ cash: '', upi: String(max / 100) })}
+            >
+              Full balance by UPI
+            </button>
+          </div>
+        )}
         <Field label="Note (optional)">
           <Input value={note} onChange={(e) => setNote(e.target.value)} maxLength={200} />
         </Field>
-        <Button className="w-full" disabled={busy || !amount} onClick={save}>
-          {busy ? 'Saving…' : 'Save'}
+        <Button className="w-full" disabled={busy || total <= 0} onClick={save}>
+          {busy ? 'Saving…' : `Save ${total > 0 ? formatPaise(total) : ''}`}
+        </Button>
+      </div>
+    </Sheet>
+  );
+}
+
+/** A payment was entered as cash but was really UPI (or the other way). */
+function SwitchSheet({ payment, onClose, onDone }: { payment: OrderPayment; onClose: () => void; onDone: (m: string) => void }) {
+  const to = payment.mode === 'cash' ? 'UPI' : 'cash';
+  const [reason, setReason] = useState('');
+  const [ref] = useState(newRef);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function run() {
+    setBusy(true);
+    const { error } = await supabase.rpc('switch_order_payment_mode', { p_payment_id: payment.id, p_reason: reason, p_client_ref: ref });
+    setBusy(false);
+    if (error) setError(friendlyError(error));
+    else onDone(`Changed ${formatPaise(payment.amount_paise)} to ${to}.`);
+  }
+
+  return (
+    <Sheet title={`Change ${formatPaise(payment.amount_paise)} to ${to}?`} onClose={onClose}>
+      <div className="space-y-3">
+        <p className="text-sm text-gray-600">
+          Use this when a payment was entered with the wrong mode. The cash and UPI totals for that day are corrected.
+        </p>
+        {error && <Alert>{error}</Alert>}
+        <Field label="Reason">
+          <Input value={reason} onChange={(e) => setReason(e.target.value)} maxLength={200} placeholder={`e.g. Customer paid by ${to}`} />
+        </Field>
+        <Button className="w-full" disabled={busy || reason.trim().length < 3} onClick={run}>
+          {busy ? 'Saving…' : `Yes, change to ${to}`}
         </Button>
       </div>
     </Sheet>
@@ -341,7 +441,9 @@ function DeliverSheet({ order, items, onClose }: { order: OrderRow; items: Order
                 </Button>
               ))}
             </div>
-            {mode === 'upi' && settings.upi_id && <UpiQr upiId={settings.upi_id} payee={settings.farm_name} amountPaise={due} note={order.order_no} />}
+            {mode === 'upi' && settings.upi_id && (
+              <UpiQr upiId={settings.upi_id} payee={settings.farm_name} amountPaise={due} note={order.order_no} />
+            )}
             {mode === 'split' && (
               <>
                 <Field label="Cash part (₹)">

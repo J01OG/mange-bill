@@ -22,7 +22,11 @@ import * as XLSX from 'npm:xlsx@0.18.5';
 type Row = Record<string, unknown>;
 type ReportData = Record<string, Row[]>;
 
-export const SHEETS = ['Summary', 'Bills', 'Items sold', 'Payments by mode', 'Returns', 'Cash out', 'Coupons used', 'Order advances'];
+/** Sheet order in the Excel file. Any other section the database sends is added after these. */
+export const SHEETS = [
+  'Summary', 'Cash', 'Bills', 'Items sold', 'Payments by mode', 'Returns', 'Cash out',
+  'Coupons used', 'Order payments', 'Orders', 'Bill changes',
+];
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -35,7 +39,8 @@ const json = (status: number, body: unknown) =>
 /** One sheet per section, with sensible column widths. Returns the .xlsx file bytes. */
 export function buildWorkbook(data: ReportData): Uint8Array {
   const wb = XLSX.utils.book_new();
-  for (const name of SHEETS) {
+  const names = [...SHEETS, ...Object.keys(data).filter((k) => !SHEETS.includes(k) && Array.isArray(data[k]))];
+  for (const name of names) {
     const rows = data[name] ?? [];
     let ws;
     if (rows.length) {
@@ -47,7 +52,7 @@ export function buildWorkbook(data: ReportData): Uint8Array {
     } else {
       ws = XLSX.utils.aoa_to_sheet([['Nothing in this period']]);
     }
-    XLSX.utils.book_append_sheet(wb, ws, name);
+    XLSX.utils.book_append_sheet(wb, ws, name.slice(0, 31));
   }
   return new Uint8Array(XLSX.write(wb, { type: 'array', bookType: 'xlsx' }));
 }

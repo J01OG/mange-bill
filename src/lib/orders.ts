@@ -39,6 +39,8 @@ export interface OrderPayment {
   business_date: string;
   note: string | null;
   created_at: string;
+  /** Set on the two lines that switch an earlier payment to the other mode. */
+  corrects_id?: string | null;
 }
 
 export const STATUS: Record<OrderStatus, { label: string; cls: string }> = {

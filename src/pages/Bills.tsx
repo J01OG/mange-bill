@@ -39,7 +39,10 @@ export function Bills() {
 
   const active = (rows ?? []).filter((r) => r.status === 'active');
   const sum = (mode: string) =>
-    active.flatMap((r) => r.payments).filter((p) => p.mode === mode).reduce((s, p) => s + p.amount_paise, 0);
+    active
+      .flatMap((r) => r.payments)
+      .filter((p) => p.mode === mode)
+      .reduce((s, p) => s + p.amount_paise, 0);
   const total = active.reduce((s, r) => s + r.total_paise, 0);
 
   return (
@@ -90,7 +93,11 @@ export function Bills() {
                   <div className="text-right">
                     <div className={`font-bold ${r.status === 'void' ? 'line-through' : ''}`}>{formatPaise(r.total_paise)}</div>
                     <div className="text-xs text-gray-600">
-                      {r.status === 'void' ? 'VOID' : r.payments.map((p) => MODE_LABEL[p.mode]).join(' + ')}
+                      {r.status === 'void'
+                        ? 'VOID'
+                        : paidModes(r.payments)
+                            .map((m) => MODE_LABEL[m])
+                            .join(' + ')}
                     </div>
                   </div>
                 </Card>
@@ -101,4 +108,11 @@ export function Bills() {
       )}
     </div>
   );
+}
+
+/** Modes that were really paid, once each (a changed payment adds correction lines). */
+function paidModes(pays: { mode: 'cash' | 'upi' | 'advance'; amount_paise: number }[]) {
+  const net = new Map<'cash' | 'upi' | 'advance', number>();
+  pays.forEach((p) => net.set(p.mode, (net.get(p.mode) ?? 0) + p.amount_paise));
+  return [...net].filter(([, a]) => a !== 0).map(([m]) => m);
 }

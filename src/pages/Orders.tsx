@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { useAuth } from '../auth/AuthProvider';
 import { Alert, buttonClass, Card, Spinner } from '../components/ui';
 import { friendlyError, istToday } from '../lib/data';
 import { formatPaise } from '../lib/money';
@@ -23,13 +22,12 @@ function range(view: View, anchor: string): [string, string] {
 }
 
 export function Orders() {
-  const { profile } = useAuth();
-  const isOwner = profile?.role === 'owner';
-  const [view, setView] = useState<View>(isOwner ? 'month' : 'day');
+  const [view, setView] = useState<View>('month');
   const [anchor, setAnchor] = useState(istToday());
   const [showClosed, setShowClosed] = useState(false);
   const [rows, setRows] = useState<OrderRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [late, setLate] = useState<OrderRow[]>([]);
   const [from, to] = range(view, anchor);
 
   useEffect(() => {
@@ -47,10 +45,18 @@ export function Orders() {
       });
   }, [from, to]);
 
-  const shown = useMemo(
-    () => (rows ?? []).filter((r) => showClosed || r.status !== 'cancelled'),
-    [rows, showClosed],
-  );
+  // Open orders whose delivery day has passed: deliver them, or move the date.
+  useEffect(() => {
+    supabase
+      .from('order_overview')
+      .select('*')
+      .lt('delivery_date', istToday())
+      .in('status', ['pending', 'advance_paid', 'ready'])
+      .order('delivery_date')
+      .then(({ data }) => setLate((data ?? []) as OrderRow[]));
+  }, []);
+
+  const shown = useMemo(() => (rows ?? []).filter((r) => showClosed || r.status !== 'cancelled'), [rows, showClosed]);
   const byDay = useMemo(() => {
     const m: Record<string, OrderRow[]> = {};
     for (const r of shown) (m[r.delivery_date] ??= []).push(r);
@@ -78,16 +84,23 @@ export function Orders() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-2">
-        <h2 className="text-xl font-bold">{isOwner ? 'Orders' : 'Today’s deliveries'}</h2>
-        {isOwner && (
+        <h2 className="text-xl font-bold">Orders</h2>
+        {
           <Link to="/orders/new" className={buttonClass('primary')}>
             + New order
           </Link>
-        )}
+        }
       </div>
       {error && <Alert>{error}</Alert>}
+      {late.length > 0 && (
+        <section className="space-y-2 rounded-2xl bg-amber-50 p-3 ring-1 ring-amber-300">
+          <h3 className="font-semibold text-amber-900">⚠️ Date passed, not delivered yet ({late.length})</h3>
+          <p className="text-sm text-amber-900">Open one to deliver it now, or Edit it to move the date.</p>
+          <OrderList rows={late} />
+        </section>
+      )}
 
-      {isOwner && (
+      {
         <>
           <div className="grid grid-cols-3 gap-1 rounded-xl bg-gray-100 p-1">
             {(['month', 'week', 'day'] as View[]).map((v) => (
@@ -112,19 +125,26 @@ export function Orders() {
             </button>
           </div>
         </>
-      )}
+      }
 
       <Card className="flex items-center justify-between">
-        <span className="text-sm text-gray-600">
-          {openRows.length} open order(s) · balance to collect
-        </span>
+        <span className="text-sm text-gray-600">{openRows.length} open order(s) · balance to collect</span>
         <span className="text-lg font-bold">{formatPaise(due)}</span>
       </Card>
 
       {!rows ? (
         <Spinner />
       ) : view === 'month' ? (
-        <MonthGrid from={from} to={to} anchor={anchor} byDay={byDay} onPick={(d) => { setAnchor(d); setView('day'); }} />
+        <MonthGrid
+          from={from}
+          to={to}
+          anchor={anchor}
+          byDay={byDay}
+          onPick={(d) => {
+            setAnchor(d);
+            setView('day');
+          }}
+        />
       ) : view === 'week' ? (
         <div className="space-y-3">
           {Array.from({ length: 7 }, (_, i) => addDays(from, i)).map((d) => (
@@ -132,11 +152,7 @@ export function Orders() {
               <h3 className={`mb-1 text-sm font-semibold ${d === istToday() ? 'text-brand-800' : 'text-gray-700'}`}>
                 {longDay(d)} {d === istToday() && '· today'}
               </h3>
-              {(byDay[d] ?? []).length === 0 ? (
-                <p className="text-sm text-gray-400">No deliveries</p>
-              ) : (
-                <OrderList rows={byDay[d]} />
-              )}
+              {(byDay[d] ?? []).length === 0 ? <p className="text-sm text-gray-400">No deliveries</p> : <OrderList rows={byDay[d]} />}
             </section>
           ))}
         </div>
@@ -146,12 +162,17 @@ export function Orders() {
         <OrderList rows={byDay[anchor]} />
       )}
 
-      {isOwner && (
+      {
         <label className="flex min-h-11 items-center gap-3 text-sm text-gray-700">
-          <input type="checkbox" className="h-5 w-5 accent-brand-700" checked={showClosed} onChange={(e) => setShowClosed(e.target.checked)} />
+          <input
+            type="checkbox"
+            className="h-5 w-5 accent-brand-700"
+            checked={showClosed}
+            onChange={(e) => setShowClosed(e.target.checked)}
+          />
           Show cancelled orders
         </label>
-      )}
+      }
     </div>
   );
 }
@@ -199,7 +220,9 @@ function MonthGrid({
             >
               <span className="font-semibold">{Number(d.slice(8))}</span>
               {list.length > 0 && (
-                <span className={`mt-1 rounded-full px-1.5 font-bold ${open.length ? 'bg-brand-700 text-white' : 'bg-gray-200 text-gray-700'}`}>
+                <span
+                  className={`mt-1 rounded-full px-1.5 font-bold ${open.length ? 'bg-brand-700 text-white' : 'bg-gray-200 text-gray-700'}`}
+                >
                   {list.length}
                 </span>
               )}

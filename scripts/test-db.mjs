@@ -420,7 +420,8 @@ const saveOrder = (user, id, items, date = today, name = 'Hotel Sai', phone = '9
 const o1 = await saveOrder('owner', null, [{ product_id: packet, qty: 10, price_paise: 5500 }]);
 const ord = o1.rows?.[0].r;
 check('order of 10 packets at bulk price ₹55 = ₹550', ord?.subtotal_paise === 55000 && /^OR\//.test(ord.order_no), o1.error);
-check('cashier cannot create orders', !!(await saveOrder('cashier', null, [{ product_id: packet, qty: 1 }])).error);
+const cashierOrder = await saveOrder('cashier', null, [{ product_id: packet, qty: 1 }]);
+check('cashier can take an order', !cashierOrder.error, cashierOrder.error);
 check('past delivery date refused for a new order', !!(await saveOrder('owner', null, [{ product_id: packet, qty: 1 }], yesterday)).error);
 check('owner cannot insert orders directly',
   !!(await as('owner', `insert into orders (order_no, customer_name, delivery_date) values ('X', 'Y', current_date)`)).error);
@@ -434,7 +435,7 @@ check('order shows advance ₹200, balance ₹350, status advance_paid',
   ov.status === 'advance_paid' && ov.advance_paise == 20000 && ov.balance_paise == 35000, JSON.stringify(ov));
 const ownAfter = await summary('owner');
 check("advance counted in today's cash in hand", ownAfter.net_cash_paise - ownBefore.net_cash_paise === 20000);
-check('advance more than the order total refused', /cannot be more/.test((await orderPay('owner', ord.id, 'advance', 40000)).error ?? ''));
+check('advance more than the order total refused', /more than the order total/.test((await orderPay('owner', ord.id, 'advance', 40000)).error ?? ''));
 check('editing the order below the advance refused',
   /more than the new order total/.test((await saveOrder('owner', ord.id, [{ product_id: packet, qty: 1 }])).error ?? ''));
 check('editing the order works', (await saveOrder('owner', ord.id, [{ product_id: packet, qty: 12, price_paise: 5500 }])).rows?.[0].r.subtotal_paise === 66000);
@@ -458,7 +459,9 @@ check('advance is not counted twice in cash (bill advance excluded)',
 check('bill from an order cannot be voided', /Returns instead/.test((await as('owner', `select void_bill($1, 'try it')`, [cvb.id])).error ?? ''));
 
 const o2 = (await saveOrder('owner', null, [{ product_id: packet, qty: 2 }], tomorrow)).rows[0].r;
-check("cashier cannot bill tomorrow's order", /due today/.test((await conv('cashier', o2.id, [{ mode: 'cash', amount_paise: 12000 }])).error ?? ''));
+const oEarly = (await saveOrder('owner', null, [{ product_id: packet, qty: 2 }], tomorrow)).rows[0].r;
+const early = await conv('cashier', oEarly.id, [{ mode: 'cash', amount_paise: 12000 }]);
+check("cashier can deliver tomorrow's order early", !early.error, early.error);
 await orderPay('owner', o2.id, 'advance', 5000, 'upi');
 check('partial advance refund', !(await orderPay('owner', o2.id, 'refund', 2000, 'upi')).error);
 check('cannot refund more than held', !!(await orderPay('owner', o2.id, 'refund', 9000, 'upi')).error);
@@ -491,8 +494,8 @@ check('dashboard sales = sum of active bills',
 check('cashier cannot open the dashboard', !!(await as('cashier', `select dashboard($1::date, $1::date)`, [today])).error);
 const rd = await as('owner', `select report_data($1::date, $1::date) as r`, [today]);
 const rdata = rd.rows?.[0].r;
-const sheets = ['Summary', 'Bills', 'Items sold', 'Payments by mode', 'Returns', 'Cash out', 'Coupons used', 'Order advances'];
-check('report has all 8 sheets', !!rdata && sheets.every((k) => Array.isArray(rdata[k])), rd.error);
+const sheets = ['Summary', 'Cash', 'Bills', 'Items sold', 'Payments by mode', 'Returns', 'Cash out', 'Coupons used', 'Order payments', 'Orders', 'Bill changes'];
+check('report has all 11 sheets', !!rdata && sheets.every((k) => Array.isArray(rdata[k])), rd.error);
 check('Bills sheet lists every bill of the day (incl. void)',
   rdata?.Bills.length === Number((await db.query(`select count(*) n from bills where business_date = $1`, [today])).rows[0].n));
 check('Summary shows sales in rupees',
@@ -599,6 +602,113 @@ await as('cashier', `update products set color = 'red' where id = '${loose}'`);
 check('cashier cannot change colour', (await db.query(`select color from products where id = $1`, [loose])).rows[0].color === 'green');
 check('bill lines still cannot be edited',
   await db.query(`update bill_items set list_price_paise = null where bill_id = $1`, [bg.id]).then(() => false, () => true));
+
+// --- Change a saved bill (payment mode, customer) -----------------------------------
+console.log('Change a saved bill');
+const editBill = async (user, id, name, phone, pays, reason = null) => {
+  const r = await as(user, `select edit_bill($1, $2, $3, $4::jsonb, $5) as r`, [id, name, phone, pays ? JSON.stringify(pays) : null, reason]);
+  return r.error ? { error: r.error } : r.rows[0].r;
+};
+const netPaid = async (id) => Object.fromEntries((await db.query(
+  `select mode::text m, sum(amount_paise)::int s from payments where bill_id = $1 group by mode having sum(amount_paise) <> 0`, [id])).rows.map((r) => [r.m, r.s]));
+const eb = await bill6('cashier', [{ product_id: packet, qty: 2 }], [{ mode: 'upi', amount_paise: 12000 }]);
+const sumBefore = await summary('cashier');
+const e1 = await editBill('cashier', eb.id, null, null, [{ mode: 'cash', amount_paise: 12000 }], 'Customer paid cash');
+check('cashier switches own bill from UPI to cash', e1.changed === true, e1.error ?? JSON.stringify(e1));
+const ebPaid = await netPaid(eb.id);
+check('bill now shows Cash ₹120 only', ebPaid.cash === 12000 && !ebPaid.upi, JSON.stringify(ebPaid));
+const sumAfter = await summary('cashier');
+check("today's cash in hand +₹120 and UPI −₹120",
+  sumAfter.net_cash_paise - sumBefore.net_cash_paise === 12000 && sumBefore.upi_sales_paise - sumAfter.upi_sales_paise === 12000,
+  JSON.stringify([sumBefore, sumAfter]));
+const ebPub = (await db.query(`select get_public_bill(share_token) r from bills where id = $1`, [eb.id])).rows[0].r;
+check('receipt shows one payment line: Cash ₹120', ebPub.payments.length === 1 && ebPub.payments[0].mode === 'cash' && ebPub.payments[0].amount_paise === 12000,
+  JSON.stringify(ebPub.payments));
+const e2 = await editBill('cashier', eb.id, null, null, [{ mode: 'cash', amount_paise: 5000 }, { mode: 'upi', amount_paise: 7000 }], 'Split');
+check('change to a split cash ₹50 + UPI ₹70', e2.changed && JSON.stringify(await netPaid(eb.id)) === JSON.stringify({ cash: 5000, upi: 7000 }),
+  e2.error ?? JSON.stringify(await netPaid(eb.id)));
+check('payment change needs a reason',
+  /why the payment/.test((await editBill('cashier', eb.id, null, null, [{ mode: 'cash', amount_paise: 12000 }])).error ?? ''));
+check('payments must add up to the bill',
+  /must add up/.test((await editBill('cashier', eb.id, null, null, [{ mode: 'cash', amount_paise: 100 }], 'oops')).error ?? ''));
+const e3 = await editBill('cashier', eb.id, 'Ravi', '98765 11111', null);
+const ebRow = (await db.query(`select customer_name, customer_phone, customer_id from bills where id = $1`, [eb.id])).rows[0];
+check('customer added after saving (no reason needed)', e3.changed && ebRow.customer_name === 'Ravi' && ebRow.customer_phone === '919876511111' && !!ebRow.customer_id,
+  e3.error ?? JSON.stringify(ebRow));
+check('nothing changed → nothing logged', (await editBill('cashier', eb.id, 'Ravi', '9876511111', null)).changed === false);
+check('bad mobile refused', /not valid/.test((await editBill('cashier', eb.id, 'Ravi', '12345', null)).error ?? ''));
+check('edits are in the audit log', Number((await db.query(`select count(*) n from audit_log where action = 'BILL_EDIT' and row_id = $1`, [eb.id])).rows[0].n) === 3);
+const oldBill = await bill(U.cashier, yesterday);
+check("cashier cannot change yesterday's bill",
+  !!(await editBill('cashier', oldBill.id, null, null, [{ mode: 'upi', amount_paise: 6000 }], 'late')).error);
+const eo = await editBill('owner', oldBill.id, null, null, [{ mode: 'upi', amount_paise: 6000 }], 'Was UPI');
+const yCash = await summary('owner', yesterday);
+check("owner fixes yesterday's bill; the fix counts on yesterday", !eo.error && (await netPaid(oldBill.id)).upi === 6000 && yCash.upi_sales_paise >= 6000,
+  eo.error);
+check('bill money fields still locked (even as admin)', await db.query(`update bills set total_paise = 1 where id = $1`, [eb.id]).then(() => false, () => true));
+check('customer fields locked outside edit_bill', !!(await db.query(`update bills set customer_name = 'X' where id = $1`, [eb.id]).then(() => null, (e) => e)));
+check('payment rows still cannot be edited', await db.query(`update payments set amount_paise = 1 where bill_id = $1`, [eb.id]).then(() => false, () => true));
+const vb = await bill6('owner', [{ product_id: packet, qty: 1 }], cash(6000));
+await as('owner', `select void_bill($1, 'test void')`, [vb.id]);
+check('void bill cannot be changed', /void/.test((await editBill('owner', vb.id, 'A', null, null)).error ?? ''));
+const repToday = (await as('owner', `select report_data($1::date, $1::date) as r`, [today])).rows[0].r;
+check('report: "Bill changes" sheet lists the changes', repToday['Bill changes'].length >= 3, JSON.stringify(repToday['Bill changes'][0]));
+check('report: bill shows net "Paid by" and the reason',
+  repToday.Bills.some((r) => r['Paid by'] === 'Upi 70.00, Cash 50.00' || r['Paid by'] === 'Cash 50.00, Upi 70.00'),
+  JSON.stringify(repToday.Bills.find((r) => r['Payment changed'])));
+
+// --- Orders taken by the cashier: split advance, pay later, switch mode, reschedule --------
+console.log('Orders by cashier');
+const takePay = async (user, id, kind, pays, ref = null) => {
+  const r = await as(user, `select take_order_payment($1, $2, $3::jsonb, null, $4) as r`, [id, kind, JSON.stringify(pays), ref]);
+  return r.error ? { error: r.error } : r.rows[0].r;
+};
+const cOrd = (await saveOrder('cashier', null, [{ product_id: packet, qty: 10 }], tomorrow, 'Wedding hall')).rows[0].r; // ₹600
+check('cashier order saved: 10 packets = ₹600', cOrd.subtotal_paise === 60000);
+const cashierSees = (await as('cashier', `select count(*)::int n from order_overview where id = $1`, [cOrd.id])).rows[0].n;
+check("cashier sees the order even though it's for tomorrow", cashierSees === 1);
+const cBefore = await summary('cashier');
+const ref1 = '11111111-2222-4333-8444-555555555555';
+const p1 = await takePay('cashier', cOrd.id, 'advance', [{ mode: 'cash', amount_paise: 10000 }, { mode: 'upi', amount_paise: 15000 }], ref1);
+check('advance split: ₹100 cash + ₹150 UPI', p1.paid_paise === 25000, p1.error ?? JSON.stringify(p1));
+check('double tap does not take it twice', (await takePay('cashier', cOrd.id, 'advance', [{ mode: 'cash', amount_paise: 10000 }], ref1)).paid_paise === 25000);
+const cAfter = await summary('cashier');
+check("order cash counted in today's cash in hand (+₹100)", cAfter.net_cash_paise - cBefore.net_cash_paise === 10000);
+check('more than the total refused', /more than the order total/.test((await takePay('cashier', cOrd.id, 'advance', [{ mode: 'cash', amount_paise: 40000 }])).error ?? ''));
+const cashLine = (await db.query(`select id from order_payments where order_id = $1 and mode = 'cash'`, [cOrd.id])).rows[0].id;
+check('switch the ₹100 cash payment to UPI',
+  !(await as('cashier', `select switch_order_payment_mode($1, 'Was really UPI')`, [cashLine])).error);
+const cSwitched = await summary('cashier');
+check('cash in hand back down by ₹100, still ₹250 paid',
+  cSwitched.net_cash_paise === cBefore.net_cash_paise &&
+  (await as('owner', `select advance_paise from order_overview where id = $1`, [cOrd.id])).rows[0].advance_paise == 25000);
+check('cannot switch the same payment twice',
+  /already switched/.test((await as('cashier', `select switch_order_payment_mode($1, 'again')`, [cashLine])).error ?? ''));
+const moved = await saveOrder('cashier', cOrd.id, [{ product_id: packet, qty: 10 }], today, 'Wedding hall');
+check('deliver early: date moved to today', !moved.error, moved.error);
+check('date cannot move into the past', /past/.test((await saveOrder('cashier', cOrd.id, [{ product_id: packet, qty: 10 }], yesterday, 'Wedding hall')).error ?? ''));
+await db.query(`update app_settings set allow_bargain = false`);
+check('special order price refused when cashiers cannot bargain',
+  /switched off/.test((await saveOrder('cashier', cOrd.id, [{ product_id: packet, qty: 10, price_paise: 5000 }], today, 'Wedding hall')).error ?? ''));
+await db.query(`update app_settings set allow_bargain = true`);
+const priced = await saveOrder('cashier', cOrd.id, [{ product_id: packet, qty: 10, price_paise: 5000 }], today, 'Wedding hall');
+check('customer changed mind: price ₹50 each, total ₹500', priced.rows?.[0].r.subtotal_paise === 50000, priced.error);
+const p2 = await takePay('cashier', cOrd.id, 'advance', [{ mode: 'cash', amount_paise: 5000 }]);
+check('pays some more on another visit (total paid ₹300)', p2.paid_paise === 30000, p2.error);
+const cBill = await conv('cashier', cOrd.id, [{ mode: 'cash', amount_paise: 10000 }, { mode: 'upi', amount_paise: 10000 }]);
+check('deliver & bill: balance ₹200 split cash + UPI', !cBill.error && cBill.rows[0].r.advance_paise === 30000, cBill.error);
+const rep2 = (await as('owner', `select report_data($1::date, $1::date) as r`, [today])).rows[0].r;
+const cashRow = rep2.Cash[0];
+check('report "Cash" sheet: cash from orders and cash in hand',
+  cashRow && 'Cash from orders ₹' in cashRow && cashRow['Cash in hand ₹'] === cashRow['Cash from bills ₹'] + cashRow['Cash from orders ₹'] + cashRow['Cash refunds ₹'] + cashRow['Cash out ₹'],
+  JSON.stringify(cashRow));
+const ownToday = await summary('owner');
+check('report cash in hand matches the Cash screen', Math.round(cashRow['Cash in hand ₹'] * 100) === ownToday.net_cash_paise,
+  `${cashRow['Cash in hand ₹']} vs ${ownToday.net_cash_paise}`);
+check('report "Orders" sheet lists the order as delivered',
+  rep2.Orders.some((r) => r['Order no'] === cOrd.order_no && r.Status === 'Delivered'), JSON.stringify(rep2.Orders.at(-1)));
+(await import('node:fs')).writeFileSync(rdFile, JSON.stringify(rep2, null, 1)); // fuller sample for the Excel test
+check('report "Order payments" shows the switch notes', rep2['Order payments'].some((r) => /Switched to UPI/.test(r.Note)));
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

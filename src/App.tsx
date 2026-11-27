@@ -64,9 +64,9 @@ function Gate() {
           <Route path="attendance" element={only(OWNER, <Attendance />)} />
           <Route path="me" element={only(['worker', 'cashier'], <WorkerDetail self />)} />
           <Route path="orders" element={only(STAFF, <Orders />)} />
-          <Route path="orders/new" element={only(OWNER, <OrderEdit />)} />
+          <Route path="orders/new" element={only(STAFF, <OrderEdit />)} />
           <Route path="orders/:id" element={only(STAFF, <OrderView />)} />
-          <Route path="orders/:id/edit" element={only(OWNER, <OrderEdit />)} />
+          <Route path="orders/:id/edit" element={only(STAFF, <OrderEdit />)} />
           <Route path="reports" element={only(OWNER, <Reports />)} />
           <Route path="products" element={only(OWNER, <Products />)} />
           <Route path="settings" element={only(OWNER, <SettingsPage />)} />

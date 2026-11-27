@@ -35,7 +35,16 @@ Deno.test('workbook has all sheets with headings and rows', () => {
   const summary = XLSX.utils.sheet_to_json(wb.Sheets['Summary']) as R[];
   const sales = summary.find((r) => r.Item === 'Sales ₹');
   if (typeof sales?.Value !== 'number') throw new Error('Sales should be a number Excel can add up');
+  const cash = XLSX.utils.sheet_to_json(wb.Sheets['Cash']) as R[];
+  if (!cash.length || !('Cash from orders ₹' in cash[0]) || !('Cash in hand ₹' in cash[0])) throw new Error('Cash sheet missing columns');
+  const changes = XLSX.utils.sheet_to_json(wb.Sheets['Bill changes']) as R[];
+  if (!changes.length || !('Reason' in changes[0])) throw new Error('Bill changes sheet empty');
   Deno.writeFileSync(new URL('./sample-report.xlsx', import.meta.url), bytes);
+});
+
+Deno.test('a new section from the database becomes its own sheet', () => {
+  const wb = XLSX.read(buildWorkbook({ Summary: [], 'Something new': [{ A: 1 }] }), { type: 'array' });
+  if (wb.SheetNames.at(-1) !== 'Something new') throw new Error(wb.SheetNames.join(', '));
 });
 
 Deno.test('empty period still gives a readable file', () => {

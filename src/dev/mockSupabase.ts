@@ -70,6 +70,8 @@ class Query {
   range(from: number, to: number) { this.max = to - from + 1; return this; }
   gte(c: string, v: any) { this.filters.push((r) => r[c] >= v); return this; }
   lte(c: string, v: any) { this.filters.push((r) => r[c] <= v); return this; }
+  lt(c: string, v: any) { this.filters.push((r) => r[c] < v); return this; }
+  in(c: string, vs: any[]) { this.filters.push((r) => vs.includes(r[c])); return this; }
   order(c: string, o?: { ascending?: boolean }) { this.sorts.push([c, o?.ascending !== false]); return this; }
   insert(p: Row | Row[]) { this.op = 'insert'; this.payload = p; return this; }
   update(p: Row) { this.op = 'update'; this.payload = p; return this; }
@@ -241,6 +243,12 @@ const workforce: Record<string, (a: any) => any> = {
   },
 };
 
+/** Net paid per mode (correction lines folded in), like get_public_bill(). */
+function netPays(billId: string) {
+  const m = new Map<string, number>();
+  db.payments.filter((p) => p.bill_id === billId).forEach((p) => m.set(p.mode, (m.get(p.mode) ?? 0) + p.amount_paise));
+  return [...m].filter(([, a]) => a !== 0).map(([mode, amount_paise]) => ({ mode, amount_paise }));
+}
 function netAdvance(orderId: string) {
   return db.order_payments.filter((p) => p.order_id === orderId).reduce((s, p) => s + (p.kind === 'advance' ? p.amount_paise : -p.amount_paise), 0);
 }
@@ -285,6 +293,26 @@ const orders: Record<string, (a: any) => any> = {
     if (p_kind === 'advance' && net + p_amount_paise > o.subtotal_paise) throw new Error('Advance cannot be more than the order total.');
     if (p_kind === 'refund' && p_amount_paise > net) throw new Error('Cannot refund more than the advance held.');
     orderPay(o.id, p_kind, p_amount_paise, p_mode, p_note);
+    return ok();
+  }),
+  take_order_payment: wrap(({ p_order_id, p_kind, p_payments, p_note }) => {
+    const o = db.orders.find((x) => x.id === p_order_id)!;
+    const net = netAdvance(o.id);
+    const sum = p_payments.reduce((s: number, p: Row) => s + p.amount_paise, 0);
+    if (p_kind === 'advance' && net + sum > o.subtotal_paise)
+      throw new Error(`That is more than the order total. At most ₹${((o.subtotal_paise - net) / 100).toFixed(2)} more can be taken.`);
+    if (p_kind === 'refund' && sum > net) throw new Error(`Only ₹${(net / 100).toFixed(2)} has been paid for this order.`);
+    p_payments.forEach((p: Row) => orderPay(o.id, p_kind, p.amount_paise, p.mode, p_note));
+    return ok({ paid_paise: netAdvance(o.id) });
+  }),
+  switch_order_payment_mode: wrap(({ p_payment_id, p_reason }) => {
+    const op = db.order_payments.find((p) => p.id === p_payment_id)!;
+    if (!p_reason || p_reason.trim().length < 3) throw new Error('Please write a reason.');
+    if (db.order_payments.some((p) => p.corrects_id === op.id)) throw new Error('This payment was already switched.');
+    const to = op.mode === 'cash' ? 'upi' : 'cash';
+    const base = { order_id: op.order_id, amount_paise: op.amount_paise, business_date: op.business_date, created_at: now(), created_by: op.created_by, corrects_id: op.id };
+    db.order_payments.push({ id: uid(), ...base, kind: op.kind === 'advance' ? 'refund' : 'advance', mode: op.mode, note: `Switched to ${to.toUpperCase()}: ${p_reason}` });
+    db.order_payments.push({ id: uid(), ...base, kind: op.kind, mode: to, note: `Switched from ${op.mode.toUpperCase()}: ${p_reason}` });
     return ok();
   }),
   set_order_ready: ({ p_order_id, p_ready }) => {
@@ -414,6 +442,33 @@ const rpcs: Record<string, (a: any) => any> = {
     if (phone && !db.customers.some((c) => c.phone === phone)) db.customers.push({ id: uid(), name: p_customer_name, phone });
     return ok({ id, bill_no: bill.bill_no, share_token: bill.share_token, total_paise: r.total });
   }),
+  edit_bill: wrap(({ p_bill_id, p_customer_name, p_customer_phone, p_payments, p_reason }) => {
+    const b = db.bills.find((x) => x.id === p_bill_id)!;
+    if (b.status === 'void') throw new Error('This bill is cancelled (void). It cannot be changed.');
+    let changed = false;
+    const name = p_customer_name?.trim() || null;
+    const phone = p_customer_phone ? normPhone(p_customer_phone) : null;
+    if (p_customer_phone && !phone) throw new Error('Customer mobile number is not valid.');
+    if (name !== (b.customer_name ?? null) || phone !== (b.customer_phone ?? null)) {
+      Object.assign(b, { customer_name: name, customer_phone: phone });
+      changed = true;
+    }
+    if (p_payments) {
+      const cur = Object.fromEntries(netPays(b.id).map((p) => [p.mode, p.amount_paise]));
+      const want: Record<string, number> = { cash: 0, upi: 0 };
+      p_payments.forEach((p: Row) => (want[p.mode] += p.amount_paise));
+      const due = b.total_paise - (cur.advance ?? 0);
+      if (want.cash + want.upi !== due) throw new Error(`Payments (₹${((want.cash + want.upi) / 100).toFixed(2)}) must add up to ₹${(due / 100).toFixed(2)}.`);
+      const deltas = (['cash', 'upi'] as const).map((m) => [m, want[m] - (cur[m] ?? 0)] as const).filter(([, d]) => d !== 0);
+      if (deltas.length) {
+        if (!p_reason || p_reason.trim().length < 3) throw new Error('Please write why the payment is being changed.');
+        deltas.forEach(([mode, d]) => db.payments.push({ id: uid(), bill_id: b.id, mode, amount_paise: d, business_date: b.business_date,
+          reference: `Changed: ${p_reason}`, created_by: b.created_by, created_at: now() }));
+        changed = true;
+      }
+    }
+    return ok({ changed });
+  }),
   void_bill: wrap(({ p_bill_id, p_reason }) => {
     const b = db.bills.find((x) => x.id === p_bill_id);
     if (!b || b.status === 'void') throw new Error('Bill not found or already void.');
@@ -498,7 +553,7 @@ const rpcs: Record<string, (a: any) => any> = {
         name: i.product_name, unit: i.unit, qty: i.qty, price_paise: i.unit_price_paise,
         gst_rate_bp: i.gst_rate_bp, tax_paise: i.tax_paise, line_total_paise: i.line_total_paise,
       })),
-      payments: db.payments.filter((p) => p.bill_id === b.id).map(({ mode, amount_paise }) => ({ mode, amount_paise })),
+      payments: netPays(b.id),
       returns: db.returns.filter((r) => r.bill_id === b.id),
       farm: { name: s.farm_name, address: s.address, phone: s.phone, gstin: s.gstin, prices_include_gst: s.prices_include_gst, footer: s.bill_footer },
     });

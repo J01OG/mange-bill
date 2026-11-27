@@ -25,6 +25,10 @@ Keep this on your phone. Each section is a few taps.
   It changes the rate for this bill only. The product price stays the same, and the bill page shows "Bargained … (normal ₹…)".
 - After saving: **Print** (pick 58 mm / 80 mm / A4) or **Send on WhatsApp** (only if a mobile number was entered) → **+ Next bill**.
 
+**Wrong payment mode, or add the customer later**: open the bill (**Bills**) → **✏️ Change payment / customer** →
+fix the name / mobile, and type what was really paid in **Cash ₹** and **UPI ₹** (both for a split) → write why → Save.
+Nothing is deleted: the change and the reason show in the Excel report ("Bill changes"). Cashiers can change their own bills from today; you can change any bill.
+
 **Customer returns something**: Home → **Returns** → type the bill number (just the last digits is fine) → choose how many → Cash/UPI refund → Save.
 **Money taken from the till**: **Cash** tab → **− Cash out** → amount, reason, who took it.
 **End of day**: **Cash** tab → "Should be in hand". Count the till. The change money you started the day with is not included in this figure.
@@ -52,10 +56,16 @@ Nobody can sign up by themselves, and a forgotten password is reset by you here.
 - **Mistake?** In History, tap *Undo this entry* (nothing is deleted; an opposite line is added). Wrong attendance → just re-mark that day.
 - **Let a worker do billing**: worker page → **App login** → *Allow billing (make cashier)*.
 
-## Bulk orders
-Home → **Orders & calendar** → **+ New order** → customer, delivery date, items (you can change prices for bulk) → Save → **+ Take advance**.
-On the delivery day: open the order → **🚚 Deliver & make bill**. The advance is subtracted and the customer pays only the balance.
-Month view shows each day's number of orders and the money still to collect.
+## Orders (owner and cashier)
+Home → **Orders & calendar** → **+ New order** → customer, delivery date, items (you can change prices for bulk) → Save.
+- **Money now, rest later**: open the order → **+ Take payment** → Cash ₹ and/or UPI ₹ → Save. Do it again on any day for more.
+- **Wrong mode** (said UPI, paid cash): tap **⇄** next to that payment, write why. That day's cash and UPI totals are corrected.
+- **Customer changes the order, price or day**: **✏️ Edit order**. Move the date later to delay, or earlier to deliver early.
+  If they paid more than the new total, use **Give money back** first.
+- **Deliver** (on the day, early or late): **🚚 Deliver & make bill**. What was paid is subtracted; collect only the balance (cash, UPI or split).
+- **Cancel**: **Cancel this order** → give the money back (cash / UPI) or keep it.
+- Orders whose date has passed and are not delivered show at the top of the Orders screen.
+Order money counts in that day's **Cash** screen ("Received for orders") and in the Excel report's **Cash** sheet.
 
 ## Reports
 Home → **Reports**: choose Today / This week / This month / any dates. **⬇ Download Excel** or **✉ Email this now**.

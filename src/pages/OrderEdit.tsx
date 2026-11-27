@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { useAuth } from '../auth/AuthProvider';
 import { Alert, Button, Card, Field, Input, Select, Spinner } from '../components/ui';
-import { friendlyError, istToday, UNIT_LABEL, useProducts } from '../lib/data';
+import { friendlyError, istToday, UNIT_LABEL, useProducts, useSettings } from '../lib/data';
 import { formatPaise, rupeesToPaise } from '../lib/money';
 import { displayPhone, normalisePhone } from '../lib/phone';
 import type { OrderItem, OrderRow } from '../lib/orders';
@@ -15,11 +16,14 @@ interface Line {
   price: string; // rupees, editable (bulk price)
 }
 
-/** New order (/orders/new) or edit (/orders/:id/edit). Owner only. */
+/** New order (/orders/new) or edit (/orders/:id/edit). Owner or cashier. */
 export function OrderEdit() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { products } = useProducts(false);
+  const { settings } = useSettings();
+  const { profile } = useAuth();
+  const canBargain = profile?.role === 'owner' || (settings?.allow_bargain ?? true);
   const [loaded, setLoaded] = useState(!id);
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
@@ -109,12 +113,13 @@ export function OrderEdit() {
         </Field>
         <div className="grid grid-cols-2 gap-3">
           <Field label="Delivery date">
-            <Input type="date" value={date} min={id ? undefined : istToday()} onChange={(e) => setDate(e.target.value)} />
+            <Input type="date" value={date} min={istToday()} onChange={(e) => setDate(e.target.value)} />
           </Field>
           <Field label="Time / place (optional)">
             <Input value={deliveryNote} onChange={(e) => setDeliveryNote(e.target.value)} maxLength={200} placeholder="7 am, back gate" />
           </Field>
         </div>
+        {id && <p className="text-xs text-gray-500">Customer wants it later or earlier? Just change the delivery date.</p>}
       </Card>
 
       <Card className="space-y-3">
@@ -123,7 +128,11 @@ export function OrderEdit() {
           <div key={l.product_id} className="rounded-xl bg-gray-50 p-3">
             <div className="flex items-center justify-between">
               <span className="font-medium">{l.name}</span>
-              <button aria-label={`Remove ${l.name}`} className="h-10 w-10 text-xl text-gray-500" onClick={() => setLines(lines.filter((_, n) => n !== i))}>
+              <button
+                aria-label={`Remove ${l.name}`}
+                className="h-10 w-10 text-xl text-gray-500"
+                onClick={() => setLines(lines.filter((_, n) => n !== i))}
+              >
                 ×
               </button>
             </div>
@@ -132,7 +141,7 @@ export function OrderEdit() {
                 <Input inputMode="decimal" value={l.qty} onChange={(e) => update(i, { qty: e.target.value.replace(/[^\d.]/g, '') })} />
               </Field>
               <Field label="Price ₹ each">
-                <Input inputMode="decimal" value={l.price} onChange={(e) => update(i, { price: e.target.value })} />
+                <Input inputMode="decimal" value={l.price} readOnly={!canBargain} onChange={(e) => update(i, { price: e.target.value })} />
               </Field>
               <div className="pb-3 text-right font-semibold">{formatPaise(lineTotal(l))}</div>
             </div>
@@ -148,7 +157,9 @@ export function OrderEdit() {
             ))}
           </Select>
         )}
-        <p className="text-xs text-gray-500">You can change the price for a bulk deal. The bill will use these prices.</p>
+        <p className="text-xs text-gray-500">
+          {canBargain ? 'You can change the price for a bulk deal. The bill will use these prices.' : 'Only the owner can change prices.'}
+        </p>
         <div className="flex justify-between border-t pt-2 text-lg font-bold">
           <span>Order total</span>
           <span>{formatPaise(total)}</span>
